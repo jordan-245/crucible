@@ -57,10 +57,16 @@ def run_one_from_queue():
         return None
     item = queue.claim_next(AGENT_ID)
     if item is None:
-        top_up()  # queue dry -> refill (under director lock), then retry once
-        item = queue.claim_next(AGENT_ID)
+        # queue dry: try to fill it; if a PEER is already filling (director lock busy),
+        # top_up returns fast and we just back off + retry-claim what the peer enqueues.
+        for _ in range(15):  # ~75s budget
+            top_up()
+            item = queue.claim_next(AGENT_ID)
+            if item is not None:
+                break
+            time.sleep(5)
         if item is None:
-            print(f"[{AGENT_ID}] nothing to claim.")
+            print(f"[{AGENT_ID}] nothing to claim after retries.")
             return None
     prop, sid = item["proposal"], _slug(item["proposal"])
     print(f"[{AGENT_ID}] claimed {item['id']}: {str(prop.get('title'))[:48]} -> {sid}")

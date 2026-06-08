@@ -12,6 +12,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/root/hephaestus
 Environment=FORGE_AGENT=smith-%i
+Environment=PYTHONUNBUFFERED=1
 Nice=15
 IOSchedulingClass=idle
 CPUWeight=20

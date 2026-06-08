@@ -18,7 +18,7 @@ WIKI = Path("/root/research-wiki")
 from agent.propose import propose
 from agent.scout import scout
 from sdk import queue
-from sdk.locks import FileLock
+from sdk.locks import FileLock, LockTimeout
 
 TARGET = 4  # keep at least this many items queued
 
@@ -32,8 +32,14 @@ def _tested_titles() -> set[str]:
 
 
 def top_up(target: int = TARGET, max_new: int = 4) -> dict:
-    """Enqueue up to max_new fresh, deduped hypotheses to reach `target` queued items."""
-    with FileLock("director", ttl=900):
+    """Enqueue up to max_new fresh, deduped hypotheses to reach `target` queued items.
+    Returns fast (added=0, skipped) if a peer already holds the director lock — the caller
+    should then just retry claim_next; the peer is filling the queue."""
+    try:
+        lock = FileLock("director", ttl=900, wait=8).acquire()
+    except LockTimeout:
+        return {"added": 0, "skipped": "director busy", **queue.stats()}
+    try:
         if queue.stats().get("queued", 0) >= target:
             return {"added": 0, **queue.stats()}
         if random.random() < 0.4:
@@ -55,6 +61,8 @@ def top_up(target: int = TARGET, max_new: int = 4) -> dict:
             inflight.add(key)
             added += 1
         return {"added": added, **queue.stats()}
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":
