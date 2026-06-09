@@ -1,9 +1,20 @@
 """Shared forge-agent config — single source of truth for the LLM invocation all smiths use."""
+import json
 import os
 
+
+def _policy_model(tier: str = "frontier", failsafe: str = "claude-opus-4-8") -> str:
+    """Read the central model policy (/root/.pi/model-policy.json). Failsafe = $0-Max model."""
+    try:
+        with open("/root/.pi/model-policy.json") as fh:
+            return json.load(fh)["tiers"][tier]
+    except Exception:
+        return failsafe
+
+
 # The model every smith uses for propose / codegen / scout.
-# Override per-run with FORGE_MODEL (e.g. fall back to sonnet if Max usage is tight).
-MODEL = os.environ.get("FORGE_MODEL", "claude-opus-4-8")
+# Resolution order: FORGE_MODEL env (per-run override) > central policy > $0-Max failsafe.
+MODEL = os.environ.get("FORGE_MODEL") or _policy_model()
 SYS = "You are Claude Code, Anthropic's official CLI for Claude."
 
 

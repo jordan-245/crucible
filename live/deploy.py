@@ -46,10 +46,32 @@ def _load_spec(strategy_path: str):
     return mod.SPEC
 
 
-def compute_target_weights(spec) -> dict:
+def _run_signal(spec):
     panel = spec.load_data()
-    _net, trades = spec.signal(panel, **spec.default_params)
+    net, trades = spec.signal(panel, **spec.default_params)
+    return net, trades
+
+
+def compute_target_weights(spec) -> dict:
+    _net, trades = _run_signal(spec)
     return extract_target_weights(trades)
+
+
+def compute_expectation(net, holdout_start: str = "2022-01-01") -> dict:
+    """Modeled daily-return distribution for the track-vs-expectation gate. Use the HOLDOUT
+    (un-optimized) slice when it has enough data — the honest forward estimate, fewer false 'diverging' flags."""
+    import numpy as np, pandas as pd
+    r = pd.Series(net).dropna()
+    try:
+        h = r[r.index >= holdout_start]
+        if len(h) >= 60:
+            r = h
+    except Exception:
+        pass
+    if len(r) < 30 or float(r.std()) == 0:
+        return {}
+    return {"daily_mean": round(float(r.mean()), 8), "daily_std": round(float(r.std()), 8),
+            "sharpe": round(float(r.mean() / r.std() * np.sqrt(252)), 3)}
 
 
 def write_target(name: str, weights: dict, strategy_path: str) -> Path:
@@ -61,19 +83,20 @@ def write_target(name: str, weights: dict, strategy_path: str) -> Path:
     return f
 
 
-def deploy_to_paper(strategy_path: str, *, name: Optional[str] = None, capital: float = 10000.0) -> dict:
+def deploy_to_paper(strategy_path: str, *, name: Optional[str] = None, capital: float = 100000.0) -> dict:
     spec = _load_spec(strategy_path)
     name = name or spec.id.replace("-", "_")
-    weights = compute_target_weights(spec)
+    net, trades = _run_signal(spec)
+    weights = extract_target_weights(trades)
+    exp = compute_expectation(net, getattr(spec, "holdout_start", "2022-01-01"))
     write_target(name, weights, strategy_path)
-    exp = json.dumps({})  # modeled expectation can be filled from the verdict later
     subprocess.run(
         [sys.executable, "-c",
          "import sys; sys.path.insert(0, '/root/atlas'); from live.providers import deploy_pass; "
-         f"deploy_pass({name!r}, capital={capital}, strategy_path={strategy_path!r})"],
+         f"deploy_pass({name!r}, capital={capital}, broker='alpaca', expectation={exp!r}, strategy_path={strategy_path!r})"],
         cwd=str(ATLAS), check=False,
     )
-    return {"name": name, "n_positions": len(weights), "weights": weights}
+    return {"name": name, "n_positions": len(weights), "expectation": exp, "weights": weights}
 
 
 def refresh_all() -> list:

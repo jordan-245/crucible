@@ -71,6 +71,8 @@ def top_up(target: int = TARGET, max_new: int = 4) -> dict:
             if "error" in prop:
                 continue
             key, th = _norm(prop.get("title", "")), _theme(prop)
+            if th in elite._closed_families():
+                continue  # HARD gate: family closed by decision (cf. decisions/CLOSED.md) — never enqueue
             if not key or key in tested or key in inflight or themes.get(th, 0) >= 2:
                 continue  # dedup vs recorded experiments + in-flight + theme cluster cap
             queue.enqueue(prop)

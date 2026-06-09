@@ -60,7 +60,10 @@ def run_one_from_queue():
         # queue dry: try to fill it; if a PEER is already filling (director lock busy),
         # top_up returns fast and we just back off + retry-claim what the peer enqueues.
         for _ in range(15):  # ~75s budget
-            top_up()
+            try:
+                top_up()  # director LLM call (propose/mutate) — guard its 300s timeout etc.
+            except Exception as e:
+                print(f"[{AGENT_ID}] top_up failed ({type(e).__name__}: {str(e)[:120]}); backing off.")
             item = queue.claim_next(AGENT_ID)
             if item is not None:
                 break
