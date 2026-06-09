@@ -32,11 +32,13 @@ HARD CONSTRAINTS (from the wiki above):
 - Prefer: combinations of validated legs, complementary premia (opposite tails), or less-efficient corners.
 - DIVERSIFY — do NOT propose yet another variant of a premium that already appears 2+ times in the experiments/queue above. If one theme (e.g. PEAD/SUE) is already well-represented, pick a DIFFERENT premium or market entirely.
 - CROWDING/DECAY — PREFER novel inefficiencies in less-arbitraged corners over heavily-published factors. Famous factors (betting-against-beta/low-vol, value, momentum, size) are CROWDED -> decayed + regime-fragile (cf. BAB: passed every single-universe gate but FAILED cross-market and is heavily published). If you propose a known premium, it must be a genuinely under-exploited IMPLEMENTATION or corner.
+- DEPLOYABILITY (board 2026-06-09 — avoid STRANDED ALPHA) — a pass is only valuable if it can be TRADED at retail scale (~$5K, IB/Alpaca, no special borrow). STRONGLY PREFER: long-only or long-tilt equity books in liquid-enough names, futures-implementable premia (IB micro-futures: equity index, rates, FX, metals, energy), ETF-implementable cross-asset books, crypto perps (small size). AVOID proposing strategies whose construction REQUIRES: shorting illiquid/hard-to-borrow names (micro-cap short legs are NOT borrowable at retail), gross leverage >2x, intraday execution, or options/OTC structures we cannot route. A long/short CROSS-SECTIONAL design is acceptable ONLY if the short leg is liquid large/mid-caps or an index hedge (e.g. short SPY/sector ETF vs the long book). If the cleanest test of the premium is long-short but a deployable long-only/index-hedged variant exists, PROPOSE THE DEPLOYABLE VARIANT.
 Return ONLY a JSON object:
 {{"title": "...", "premium": "...", "market": "...", "data_source": "...", "free_or_owned": "...",
 "signal_approach": "one-paragraph frozen construction", "why_not_duplicate": "...", "prior": "low|medium|high",
 "pairs_with": "...", "gate0_data_check": "what to verify before building",
 "crowding_risk": "low|medium|high — how heavily-published/arbitraged is this edge? (favour low)",
+"retail_tradable_5k": "yes|no — can THIS construction be executed at ~$5K via IB/Alpaca (instruments routable, short leg borrowable or index-hedged, no >2x gross leverage)? If no, this proposal will be DOWN-RANKED — prefer redesigning it to a deployable variant",
 "scope": "broad|local — broad if a UNIVERSAL mechanism (theory says it appears across markets; a pass must later GENERALISE) or local if defensibly universe-specific (then forward-validation confirms it)",
 "generalization_plan": "if broad: the untouched universes to confirm the mechanism in (e.g. other cap-tiers/sectors/asset-classes); if local: the economic reason it lives ONLY in this universe + the forward-validation plan"}}"""
     r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=300)
@@ -60,8 +62,10 @@ ELITE STRATEGY to EVOLVE (fitness/DSR {elite.get('fitness')}):
 
 Propose ONE targeted MUTATION to make it MORE ROBUST or GENERALISE better — e.g. a different/broader universe,
 a complementary leg, a cleaner/lower-turnover construction, a regime filter, a cost-hardening. Keep what worked;
-fix the fragile part. This is an EVOLUTION of THIS strategy, NOT a new idea, and must still obey the anti-patterns
-and use owned/free data. Return ONLY the SAME JSON proposal object (title, premium, market, data_source,
+fix the fragile part. DEPLOYABILITY: the mutated construction must stay retail-tradable at ~$5K (IB/Alpaca;
+no illiquid short legs, no >2x gross leverage) — mutating TOWARD deployability (e.g. long-only/index-hedged
+variant) is itself a high-value mutation. This is an EVOLUTION of THIS strategy, NOT a new idea, and must still
+obey the anti-patterns and use owned/free data. Return ONLY the SAME JSON proposal object (title, premium, market, data_source,
 free_or_owned, signal_approach, why_not_duplicate, prior, pairs_with, gate0_data_check, crowding_risk, scope,
 generalization_plan) with the mutation applied (title should note it's a variant)."""
     r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=300)
