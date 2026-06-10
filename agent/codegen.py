@@ -61,7 +61,7 @@ Be economical and correct. OWNED/FREE data only (see DATA_CATALOG.md). The harne
 
 def _pi(prompt: str) -> str:
     try:
-        r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
         return _assistant_text(r.stdout)
     except subprocess.TimeoutExpired as e:
         out = e.stdout.decode() if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or "")

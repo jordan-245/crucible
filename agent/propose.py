@@ -41,7 +41,8 @@ Return ONLY a JSON object:
 "retail_tradable_5k": "yes|no — can THIS construction be executed at ~$5K via IB/Alpaca (instruments routable, short leg borrowable or index-hedged, no >2x gross leverage)? If no, this proposal will be DOWN-RANKED — prefer redesigning it to a deployable variant",
 "scope": "broad|local — broad if a UNIVERSAL mechanism (theory says it appears across markets; a pass must later GENERALISE) or local if defensibly universe-specific (then forward-validation confirms it)",
 "generalization_plan": "if broad: the untouched universes to confirm the mechanism in (e.g. other cap-tiers/sectors/asset-classes); if local: the economic reason it lives ONLY in this universe + the forward-validation plan"}}"""
-    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=300)
+    # 420s: Fable-5 measured 285s on a real propose — 300s left only ~15s headroom (2026-06-10 smoke test)
+    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
     text = _assistant_text(r.stdout)
     try:
         s, e = text.find("{"), text.rfind("}")
@@ -68,7 +69,7 @@ variant) is itself a high-value mutation. This is an EVOLUTION of THIS strategy,
 obey the anti-patterns and use owned/free data. Return ONLY the SAME JSON proposal object (title, premium, market, data_source,
 free_or_owned, signal_approach, why_not_duplicate, prior, pairs_with, gate0_data_check, crowding_risk, scope,
 generalization_plan) with the mutation applied (title should note it's a variant)."""
-    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=300)
+    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
     text = _assistant_text(r.stdout)
     try:
         s, e = text.find("{"), text.rfind("}")
