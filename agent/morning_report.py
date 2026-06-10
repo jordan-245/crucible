@@ -22,7 +22,8 @@ from sdk.notify import telegram_msg
 ROOT = Path("/root/hephaestus")
 WIKI = Path("/root/research-wiki")
 RUNLOG = ROOT / "agent" / "run_log.jsonl"
-LIVE = Path("/root/atlas/data/live/val_mom_trend_smallcap")
+ATLAS_LIVE = Path("/root/atlas/data/live")
+REGISTRY = Path("/root/atlas/config/live_strategies.json")
 BAB_LEDGER = ROOT / "forward" / "bab_ledger.jsonl"
 
 
@@ -87,23 +88,53 @@ def forge_section() -> list:
 
 
 def forward_paper_section() -> list:
-    lines = ["📄 <b>Forward-paper</b> (val_mom_trend_smallcap)"]
-    runs = _jsonl(LIVE / "runs.jsonl")
-    rets = _jsonl(LIVE / "returns.jsonl")
-    if not runs:
-        lines.append("  no runs recorded — check atlas-forward-paper.timer")
-        return lines
-    last = runs[-1]
-    lines.append(f"  {last.get('date')}: {last.get('n_orders', 0)} orders, "
-                 f"turnover ${last.get('turnover', 0):,.0f}, track={last.get('track', '?')}"
-                 + (f" ⚠ blocked: {last['blocked']}" if last.get("blocked") else ""))
-    if rets:
+    """ALL deployed paper-book strategies (virtual sub-books) + portfolio rollup. Scales with N."""
+    try:
+        reg = json.loads(REGISTRY.read_text()) if REGISTRY.exists() else []
+    except Exception:
+        reg = []
+    if not reg:
+        return ["📄 <b>Paper portfolio</b> — no strategies deployed"]
+    lines = [f"📄 <b>Paper portfolio</b> — {len(reg)} strateg" + ("y" if len(reg) == 1 else "ies")]
+    tot_eq, tot_base = 0.0, 0.0
+    for s in reg:
+        name = s.get("name", "?")
+        d = ATLAS_LIVE / name
+        runs = _jsonl(d / "runs.jsonl")
+        rets = _jsonl(d / "returns.jsonl")
+        book = {}
+        try:
+            book = json.loads((d / "book.json").read_text()) if (d / "book.json").exists() else {}
+        except Exception:
+            pass
+        base = float(book.get("capital_base") or s.get("capital") or 0)
+        eq = None
+        try:
+            eq = json.loads((d / "equity_state.json").read_text()).get("equity")
+        except Exception:
+            pass
         cum = 1.0
         for r in rets:
             cum *= 1 + (r.get("ret") or 0)
-        lines.append(f"  {len(rets)} daily returns · cum {(cum-1)*100:+.2f}% · last {rets[-1].get('ret', 0)*100:+.2f}%")
-    else:
-        lines.append("  0 returns yet (first lands after the first full US session)")
+        last_run = runs[-1] if runs else {}
+        bits = [f"  • {name} [{s.get('state','?')}]"]
+        if eq is not None:
+            bits.append(f"${eq:,.0f}")
+            tot_eq += eq
+            tot_base += base
+        if rets:
+            bits.append(f"cum {(cum-1)*100:+.2f}% ({len(rets)}d, last {rets[-1].get('ret',0)*100:+.2f}%)")
+        else:
+            bits.append("0 returns yet")
+        if last_run:
+            bits.append(f"orders {last_run.get('n_orders',0)} · track={last_run.get('track','?')}")
+            if last_run.get("blocked"):
+                bits.append(f"⚠ {last_run['blocked']}")
+        lines.append(" · ".join(bits))
+    if tot_base > 0:
+        pnl = tot_eq - tot_base
+        lines.append(f"  Σ ${tot_eq:,.0f} on ${tot_base:,.0f} · P&L {'+' if pnl >= 0 else ''}{pnl:,.0f} "
+                     f"({(tot_eq/tot_base-1)*100:+.2f}%)")
     return lines
 
 
