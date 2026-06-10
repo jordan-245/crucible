@@ -74,28 +74,40 @@ def run_one_from_queue():
     prop, sid = item["proposal"], _slug(item["proposal"])
     print(f"[{AGENT_ID}] claimed {item['id']}: {str(prop.get('title'))[:48]} -> {sid}")
     verdict, log = None, ""
+    # Observability: per-stage wall-clock + retry counters -> run_log.jsonl ("stages" key)
+    stages = {"codegen_s": None, "codegen_attempts": None, "consistency_fix": False,
+              "sandbox_rejects": 0, "run_attempts": 0, "backtest_s": None, "total_s": None}
+    t_cycle = time.time()
     try:
+        t0 = time.time()
         code = codegen.generate(prop)
         ok, issues = codegen.consistency_check(prop, code)  # does the code implement the claimed thesis?
         if not ok and issues:
             print(f"[{AGENT_ID}] thesis<->code mismatch: {issues[:120]}; requesting fix...")
+            stages["consistency_fix"] = True
             code = codegen.fix(code, f"THESIS MISMATCH — the code must FAITHFULLY implement the proposal's "
                                      f"economic thesis. Fix these mismatches: {issues}")
+        stages["codegen_s"] = round(time.time() - t0, 1)
+        stages["codegen_attempts"] = codegen.LAST_GEN.get("attempts")
         for attempt in range(1, MAX_RETRIES + 1):
             bad = scan_code(code)
             if bad:
                 print(f"[{AGENT_ID}] sandbox REJECT ({bad}); requesting fix...")
+                stages["sandbox_rejects"] += 1
                 code = codegen.fix(code, f"SANDBOX VIOLATION: {bad}. Remove it entirely; the harness "
                                          f"owns ALL I/O and data is fetched via sdk.adapters only.")
                 continue
             mod = ROOT / "strategies" / f"{sid.replace('-', '_')}.py"
             mod.write_text(code)
             print(f"[{AGENT_ID}] run attempt {attempt}...")
+            stages["run_attempts"] = attempt
+            t_run = time.time()
             try:
                 verdict, log = _run_module(mod.stem)
             except subprocess.TimeoutExpired:
                 log = "TIMEOUT (>1800s)"
             if verdict is not None:
+                stages["backtest_s"] = round(time.time() - t_run, 1)
                 break
             tb = "\n".join(l for l in log.splitlines() if any(k in l for k in
                   ("Error", "Traceback", "Exception", "line ", "raise", "assert")))[-2500:] or log[-2500:]
@@ -103,9 +115,10 @@ def run_one_from_queue():
     except Exception as e:  # never let one bad cycle crash the worker / strand the queue item
         log = f"WORKER EXCEPTION: {type(e).__name__}: {str(e)[:300]}"
         print(f"[{AGENT_ID}] {log}")
+    stages["total_s"] = round(time.time() - t_cycle, 1)
     outcome = {"ts": datetime.now().isoformat(), "agent": AGENT_ID, "queue_id": item["id"],
                "id": sid, "title": prop.get("title"), "proposal": prop,
-               "ran": verdict is not None, "verdict": verdict,
+               "ran": verdict is not None, "verdict": verdict, "stages": stages,
                "passed_all": bool(verdict and verdict.get("PASSED_ALL_GATES"))}
     RUNLOG.parent.mkdir(exist_ok=True)
     with FileLock("runlog", ttl=30):  # proposals can exceed the 4KB atomic-append size

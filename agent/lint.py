@@ -46,6 +46,39 @@ def prune_candidates():
     return dropped
 
 
+def archive_strategies(days: int = 30):
+    """Move strategy modules older than N days into strategies/archive/ (the run record lives in
+    run_log.jsonl + the wiki; old generated modules are only needed for forensics)."""
+    import time
+    sdir = Path("/root/hephaestus/strategies")
+    adir = sdir / "archive"
+    cutoff = time.time() - days * 86400
+    moved = 0
+    for p in sdir.glob("*.py"):
+        if p.name == "__init__.py":
+            continue
+        if p.stat().st_mtime < cutoff:
+            adir.mkdir(exist_ok=True)
+            p.rename(adir / p.name)
+            moved += 1
+    return moved
+
+
+def prune_forge_logs(days: int = 30):
+    """Delete dated forge logs older than N days (logs/forge-YYYY-MM-DD.log)."""
+    import time
+    ldir = Path("/root/hephaestus/logs")
+    if not ldir.exists():
+        return 0
+    cutoff = time.time() - days * 86400
+    n = 0
+    for p in ldir.glob("forge-*.log"):
+        if p.stat().st_mtime < cutoff:
+            p.unlink()
+            n += 1
+    return n
+
+
 def orphans():
     """Pages with no inbound [[wikilink]] (excluding spine pages)."""
     pages = {p.stem for p in WIKI.rglob("*.md")}
@@ -57,6 +90,7 @@ def orphans():
 
 def lint():
     a, d = cap_log(), prune_candidates()
+    n_arch, n_logs = archive_strategies(), prune_forge_logs()
     nexp = len(list((WIKI / "experiments").glob("*.md")))
     reg = WIKI / ".registry" / "hypothesis_registry.jsonl"
     nreg = len(reg.read_text().splitlines()) if reg.exists() else 0
@@ -64,7 +98,8 @@ def lint():
     nelite = len(elite.read_text().splitlines()) if elite.exists() else 0
     npages = len(list(WIKI.rglob("*.md")))
     orph = orphans()
-    print(f"[lint] {datetime.now():%Y-%m-%d}: archived {a} log entries | pruned {d} tested candidates")
+    print(f"[lint] {datetime.now():%Y-%m-%d}: archived {a} log entries | pruned {d} tested candidates | "
+          f"archived {n_arch} old strategy modules | pruned {n_logs} old forge logs")
     print(f"[lint] health: {nexp} experiments | {nreg} registry rows | {npages} pages | {nelite} elite | orphans {orph}")
     with (WIKI / "log.md").open("a") as f:
         f.write(f"\n## [{datetime.now():%Y-%m-%d}] lint | archived {a} log, pruned {d} candidates | "

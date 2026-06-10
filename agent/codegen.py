@@ -78,16 +78,23 @@ def _looks_complete(code: str) -> bool:
     return "def signal" in code and len(code) > 300
 
 
+# Observability: stats of the LAST generate() call, read by run_worker for the run record.
+LAST_GEN = {"attempts": 0, "empty_retries": 0}
+
+
 def generate(proposal: dict) -> str:
     prompt = (f"{CONTRACT}\n\n=== PROPOSAL TO IMPLEMENT ===\n{json.dumps(proposal, indent=2)}\n\n"
               f"Write the COMPLETE module now as ONE ```python code block with the full implementation "
               f"(imports + def signal + any helpers). Do NOT emit a skeleton, outline, or partial block.")
     code = ""
+    LAST_GEN["attempts"] = 0
     for _ in range(3):  # retry-on-empty at the SOURCE -> kills the wasted consistency/fix call per run
+        LAST_GEN["attempts"] += 1
         code = _extract_code(_pi(prompt))
         if _looks_complete(code):
-            return code
-    return code  # last attempt; the run-loop fix() repairs if still incomplete
+            break
+    LAST_GEN["empty_retries"] = LAST_GEN["attempts"] - 1
+    return code  # if still incomplete after 3, the run-loop fix() repairs
 
 
 def fix(code: str, traceback: str) -> str:

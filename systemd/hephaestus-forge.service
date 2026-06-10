@@ -1,21 +1,12 @@
 [Unit]
 Description=Hephaestus forge — N=3 smiths (multi-agent autonomous research) + digest
 After=network-online.target
-Wants=network-online.target
 
 [Service]
-# Launches 3 forge workers in parallel; each does a bounded burst of claim->codegen->
-# sandboxed-run->record cycles, self-coordinating via the shared queue + FDR-registry lock
-# (no duplicate work, correct FDR bar). Waits for all 3, then sends the Telegram digest.
-# Killswitch: `touch /root/hephaestus/LOOP_DISABLED` (every smith checks it each cycle).
 Type=oneshot
 WorkingDirectory=/root/hephaestus
 Environment=PYTHONUNBUFFERED=1
-Nice=15
-IOSchedulingClass=idle
-CPUWeight=20
-ExecStart=/bin/bash -lc 'rm -f /tmp/heph_forge.log; for i in 1 2 3; do (FORGE_AGENT=smith-$i python3 -m agent.run_worker --cycles 3 >> /tmp/heph_forge.log 2>&1) & done; wait; python3 agent/digest.py >> /tmp/heph_forge.log 2>&1'
-TimeoutStartSec=10800
-
-[Install]
-WantedBy=multi-user.target
+# 3 parallel smiths share the queue/locks/FDR registry (no duplicate work, correct FDR bar).
+# Waits for all 3, then sends the Telegram digest. Persistent dated log under logs/ (30-day retention,
+# pruned by hephaestus-lint); /tmp/heph_forge.log stays as a symlink for humans + the dashboard API.
+ExecStart=/bin/bash -lc 'LOG=/root/hephaestus/logs/forge-$(date +%%Y-%%m-%%d).log; ln -sf "$LOG" /tmp/heph_forge.log; for i in 1 2 3; do (FORGE_AGENT=smith-$i python3 -m agent.run_worker --cycles 3 >> "$LOG" 2>&1) & done; wait; python3 agent/digest.py >> "$LOG" 2>&1'
