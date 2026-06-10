@@ -118,13 +118,16 @@ def _sep_cache() -> str:
     """Build/load a cached long parquet of owned Sharadar SEP (one-time ~1-2min build).
     Rebuilds automatically when SEP.zip is newer than the cache (fresh data drop)."""
     import zipfile
-    out = os.path.join(_CACHE_DIR, "sep_long.parquet")
+    # v2: + close/closeunadj (ex-div inference needs an unadjusted companion — runtime_error 2026-06-10).
+    # Versioned filename forces a rebuild on schema change (_stale only checks mtime, not columns).
+    out = os.path.join(_CACHE_DIR, "sep_long_v2.parquet")
     src = os.path.join(SHARADAR_DIR, "SEP.zip")
     if _stale(out, src):
         os.makedirs(_CACHE_DIR, exist_ok=True)
         z = zipfile.ZipFile(src)
         with z.open(z.namelist()[0]) as f:
-            df = pd.read_csv(f, usecols=["ticker", "date", "closeadj", "volume"], parse_dates=["date"])
+            df = pd.read_csv(f, usecols=["ticker", "date", "close", "closeadj", "closeunadj", "volume"],
+                             parse_dates=["date"])
         tmp = out + ".tmp"
         df.sort_values("ticker").to_parquet(tmp, index=False, row_group_size=500_000)
         os.replace(tmp, out)
@@ -133,7 +136,8 @@ def _sep_cache() -> str:
 
 def sep_panel(tickers=None, start="2000-01-01", end=None, field="closeadj") -> pd.DataFrame:
     """SURVIVORSHIP-CLEAN US equity daily panel from OWNED Sharadar SEP (delisted incl, split+div adj).
-    Wide DataFrame: business-day DatetimeIndex x ticker of `field` (closeadj=adjusted close | volume).
+    Wide DataFrame: business-day DatetimeIndex x ticker of `field`
+    (closeadj=adjusted close | closeunadj | close | volume).
     PREFER THIS over yf_panel for US stocks (yfinance has survivorship bias — a wiki anti-pattern).
     tickers=None loads ALL (~16k, heavy) — pass a list (e.g. from us_universe())."""
     path = _sep_cache()
