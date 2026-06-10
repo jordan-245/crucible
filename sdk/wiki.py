@@ -11,6 +11,21 @@ def write_experiment(spec, verdict: dict):
               else "NEAR-MISS" if (verdict.get("dsr") or 0) and verdict["dsr"] >= 0.85
               else "FAIL")
     page = WIKI / "experiments" / f"{spec.id}.md"
+    # ID-COLLISION GUARD: two different proposals can pick the same spec.id (happened with
+    # amihud_illiquidity_smallcap 2026-06-10: a cost-hardened VARIANT silently overwrote the
+    # original PROMOTE-tier page). Never overwrite a page whose title differs — version it.
+    if page.exists():
+        try:
+            old = page.read_text()
+            old_title = next((l[2:].strip() for l in old.splitlines() if l.startswith("# ")), "")
+            if old_title and old_title != spec.title:
+                import hashlib
+                suffix = hashlib.sha1(spec.title.encode()).hexdigest()[:6]
+                page = WIKI / "experiments" / f"{spec.id}__{date.today().strftime('%Y%m%d')}-{suffix}.md"
+                print(f"[wiki] id collision on '{spec.id}' (existing page is a different experiment) "
+                      f"-> versioned page {page.name}")
+        except Exception:
+            pass
     page.write_text(f"""---
 id: {spec.id}
 status: {status}
@@ -37,9 +52,10 @@ generated_by: hephaestus-agent
 - needs_confirmation: {verdict.get('needs_confirmation') or 'none'}
 - **PASSED ALL GATES: {verdict['PASSED_ALL_GATES']}**
 """)
-    # append to log + index
+    # append to log + index (use the page stem — may be the versioned name on collision)
+    stem = page.stem
     with open(WIKI / "log.md", "a") as f:
-        f.write(f"\n## [{date.today()}] experiment | {spec.id} -> {status} (tier {verdict['tier']}, holdout {verdict['holdout_pass']})")
+        f.write(f"\n## [{date.today()}] experiment | {stem} -> {status} (tier {verdict['tier']}, holdout {verdict['holdout_pass']})")
     with open(WIKI / "index.md", "a") as f:
-        f.write(f"\n- [[experiments/{spec.id}]] — {status} ({spec.title})")
+        f.write(f"\n- [[experiments/{stem}]] — {status} ({spec.title})")
     return page
