@@ -2,11 +2,10 @@
 wiki gaps, distills findings into the wiki, and queues testable candidates for the propose step.
 This makes generation OPEN (discovers what others run) instead of only recombining what we know.
 Pattern: karpathy LLM-Wiki 'ingest' + a research scout. LLM via the pi CLI + brave-search."""
-import json, subprocess
+import json
 from datetime import date
 from pathlib import Path
-from agent.propose import _assistant_text
-from agent.config import MODEL, pi_cmd
+from agent.llm import call as _llm_call, extract_json
 
 from crucible_paths import WIKI  # central config
 
@@ -17,8 +16,7 @@ def _read(p):
 
 
 def _pi(prompt):
-    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=480)
-    return _assistant_text(r.stdout)
+    return _llm_call(prompt, timeout=480)
 
 
 def _brave(query, n=5):
@@ -31,12 +29,9 @@ def _brave(query, n=5):
 
 def _json(text):
     for op, cl in (("{", "}"), ("[", "]")):
-        s, e = text.find(op), text.rfind(cl)
-        if s >= 0 and e > s:
-            try:
-                return json.loads(text[s:e + 1])
-            except Exception:
-                continue
+        obj = extract_json(text, op, cl)
+        if obj is not None:
+            return obj
     return None
 
 

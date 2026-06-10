@@ -7,7 +7,8 @@ a tier-NATIVE book per cap tier — grid searched ON that tier so the default ra
 Small-cap is already clean (trend_overlay, PBO 0.078). Queue the LARGE and MID native books here.
 """
 import sys
-sys.path.insert(0, "/root/crucible")
+from pathlib import Path as _P
+sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
 from sdk import queue
 
 # Frozen construction = the VALIDATED small-cap trend_overlay (smith2_96154), parameterised by cap tier.

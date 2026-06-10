@@ -26,9 +26,27 @@ import pandas as pd
 
 import os
 PROJECT = Path(__file__).resolve().parents[2]
-_DIR = Path(os.environ.get("RESEARCH_INTEGRITY_DIR", os.getcwd()))
-HOLDOUT_CFG = _DIR / "holdout.json"          # per-project: set RESEARCH_INTEGRITY_DIR or cwd
-LEDGER = _DIR / "holdout_ledger.jsonl"       # write-once single-use ledger (per project)
+_OVERRIDE_DIR = None  # set via research_integrity.configure(state_dir)
+
+
+def _state_dir() -> Path:
+    """Resolve the state dir LAZILY (per call), so import order can never silently point
+    holdout/registry state at os.getcwd() — the M5 config-by-import-order trap."""
+    return _OVERRIDE_DIR or Path(os.environ.get("RESEARCH_INTEGRITY_DIR", os.getcwd()))
+
+
+class _LazyPath:
+    """Path-like whose location is resolved at USE time (back-compat for module constants)."""
+    def __init__(self, name): self._name = name
+    def _p(self) -> Path: return _state_dir() / self._name
+    def __getattr__(self, a): return getattr(self._p(), a)
+    def __fspath__(self): return str(self._p())
+    def __str__(self): return str(self._p())
+    def __truediv__(self, o): return self._p() / o
+
+
+HOLDOUT_CFG = _LazyPath("holdout.json")          # per-project: set RESEARCH_INTEGRITY_DIR or configure()
+LEDGER = _LazyPath("holdout_ledger.jsonl")       # write-once single-use ledger (per project)
 
 # Pre-registered holdout-gate thresholds (frozen).
 MIN_HOLDOUT_SHARPE = 0.0           # must be net-positive on truly unseen data

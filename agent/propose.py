@@ -1,8 +1,8 @@
 """Generation step: read the shared wiki, propose ONE new untested hypothesis (LLM via the pi CLI).
 Grounded in accumulated knowledge so it never re-tests closed sets or duplicates experiments."""
-import json, subprocess
+import json  # noqa: F401 (used by prompt formatting)
 from pathlib import Path
-from agent.config import pi_cmd
+from agent.llm import call as _llm_call, assistant_text as _assistant_text, extract_json  # noqa: F401 (re-export for legacy importers)
 
 from crucible_paths import WIKI  # central config
 SYS = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -56,13 +56,9 @@ Return ONLY a JSON object:
 "scope": "broad|local — broad if a UNIVERSAL mechanism (theory says it appears across markets; a pass must later GENERALISE) or local if defensibly universe-specific (then forward-validation confirms it)",
 "generalization_plan": "if broad: the untouched universes to confirm the mechanism in (e.g. other cap-tiers/sectors/asset-classes); if local: the economic reason it lives ONLY in this universe + the forward-validation plan"}}"""
     # 420s: Fable-5 measured 285s on a real propose — 300s left only ~15s headroom (2026-06-10 smoke test)
-    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
-    text = _assistant_text(r.stdout)
-    try:
-        s, e = text.find("{"), text.rfind("}")
-        return json.loads(text[s:e + 1])
-    except Exception:
-        return {"raw": text[:1500] or r.stdout[:800], "error": "parse_failed", "stderr": r.stderr[:300]}
+    text = _llm_call(prompt)
+    obj = extract_json(text)
+    return obj if obj is not None else {"raw": text[:1500], "error": "parse_failed"}
 
 
 def mutate(elite: dict) -> dict:
@@ -83,41 +79,7 @@ variant) is itself a high-value mutation. This is an EVOLUTION of THIS strategy,
 obey the anti-patterns and use owned/free data. Return ONLY the SAME JSON proposal object (title, premium, market, data_source,
 free_or_owned, signal_approach, why_not_duplicate, prior, pairs_with, gate0_data_check, crowding_risk, scope,
 generalization_plan) with the mutation applied (title should note it's a variant)."""
-    r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
-    text = _assistant_text(r.stdout)
-    try:
-        s, e = text.find("{"), text.rfind("}")
-        return json.loads(text[s:e + 1])
-    except Exception:
-        return {"error": "mutate_parse_failed"}
+    obj = extract_json(_llm_call(prompt))
+    return obj if obj is not None else {"error": "mutate_parse_failed"}
 
 
-def _assistant_text(stream: str) -> str:
-    """Return the FULL assistant message. pi streams cumulative snapshots, so return the
-    longest single assistant-text candidate (the final complete message), not a concat."""
-    parts = []
-    for line in stream.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            ev = json.loads(line)
-        except Exception:
-            continue
-        d = ev.get("delta") or {}
-        if d.get("text"):
-            parts.append(d["text"])
-        msg = ev.get("message")
-        if isinstance(msg, dict) and msg.get("role") == "assistant":
-            for c in msg.get("content", []):
-                if isinstance(c, dict) and c.get("type") == "text" and c.get("text"):
-                    parts.append(c["text"])
-        for k in ("text", "content"):
-            if ev.get("type") in ("agent_message", "assistant_message") and isinstance(ev.get(k), str):
-                parts.append(ev[k])
-    return max(parts, key=len) if parts else ""
-
-
-if __name__ == "__main__":
-    p = propose()
-    print(json.dumps(p, indent=2)[:2000])

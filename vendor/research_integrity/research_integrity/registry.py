@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Optional
 
 import os
-REGISTRY = Path(os.environ.get("RESEARCH_INTEGRITY_DIR", os.getcwd())) / "hypothesis_registry.jsonl"
+from .holdout import _LazyPath
+REGISTRY = _LazyPath("hypothesis_registry.jsonl")  # resolved at use time (see holdout._state_dir)
 
 
 def family_of(strategy: str) -> str:

@@ -37,3 +37,11 @@ __all__ = [
     "MIN_HOLDOUT_SHARPE", "MAX_DEGRADATION_PCT",
     "family_of", "distinct_families", "append_run",
 ]
+
+
+def configure(state_dir):
+    """Point holdout-ledger + FDR-registry state at an explicit directory (overrides the
+    RESEARCH_INTEGRITY_DIR env var). Call BEFORE any ledger/registry operation."""
+    from pathlib import Path as _Path
+    from . import holdout as _h
+    _h._OVERRIDE_DIR = _Path(state_dir)

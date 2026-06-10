@@ -47,15 +47,14 @@ class StrategySpec:
     project: str = "crucible"
 
 
-def _sharpe(r, ann=252):
-    r = pd.Series(r).dropna()
-    return float(r.mean() / r.std() * np.sqrt(ann)) if r.std() > 0 else 0.0
+from sdk.stats import sharpe as _sharpe, maxdd as _maxdd_canon  # canonical (sdk/stats.py)
 
 
-def _maxdd(r):
-    eq = (1 + pd.Series(r).dropna()).cumprod()
-    return float((eq / eq.cummax() - 1).min())
+def _sharpe_doc_anchor():
+    """_sharpe is sdk.stats.sharpe — ONE definition repo-wide (was 8 divergent copies)."""
 
+
+_maxdd = _maxdd_canon
 
 def _price_matrix(panel):
     """Best-effort (dates x assets) price matrix for the long-only benchmark; None if not a price panel."""

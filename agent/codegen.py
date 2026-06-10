@@ -1,13 +1,10 @@
 """Signal codegen: the agent writes a complete StrategySpec module from its proposal,
 with a bounded fix-retry loop (reads the traceback, repairs the code). LLM via the pi CLI."""
-import json, re, subprocess
-from agent.propose import _assistant_text
-from agent.config import pi_cmd
-
-SYS = "You are Claude Code, Anthropic's official CLI for Claude."
+import json, re
+from agent.llm import call as _llm_call, extract_json
 
 CONTRACT = '''
-You are writing a Python strategy module for the Hephaestus research harness. Output ONLY one
+You are writing a Python strategy module for the Crucible research harness. Output ONLY one
 ```python code block: a complete module with NO external side effects (no file writes, no capital,
 no config). It MUST define exactly:
 
@@ -39,7 +36,22 @@ CONTRACT:
 USE ONLY these tested imports (do NOT download raw / reinvent). Full data inventory: research-wiki/DATA_CATALOG.md.
   from sdk.harness import StrategySpec
   from sdk.adapters import sep_panel, us_universe, sf1, yf_panel, fred_series, trend_returns, inv_vol_position
+  from sdk.universe import sector_universe
+  from sdk.signal_kit import xs_zscore, net_of_cost, trades_from_weights, pit_panel
   import numpy as np, pandas as pd
+
+MANDATORY KIT (do NOT re-implement these — every hand-rolled copy is a fresh chance for a
+lookahead bug the harness can't see; the ONLY novel code in your module is the signal itself):
+- sector_universe(marketcap, top_n_per_sector) -> (tickers, sector_map): sector-spread universe +
+  the {ticker: sector} map the trade ledger needs. USE THIS instead of looping us_universe per sector.
+- xs_zscore(df, winsor=(0.05,0.95)) -> cross-sectional per-date z-score, winsorized, NaN-preserving.
+- net_of_cost(W, rets, cost_bps=8.0, name=...) -> daily net returns from a LAGGED weight matrix
+  (pass W.shift(1) if you built same-day weights — the lag is YOUR responsibility, state it in the code).
+- trades_from_weights(W, rets, sector_map) -> the CONTRACT trade ledger (run-length per held name).
+- pit_panel(sf1_df, field, dates, tickers) -> point-in-time fundamental panel (datekey-based, ffilled;
+  never use calendardate — that's lookahead).
+A typical module body is therefore: build universe -> load panels -> compute YOUR signal -> weights
+-> W=...shift(1) -> net_of_cost + trades_from_weights -> return. Keep it SHORT.
 - sep_panel(tickers, start, field='closeadj') -> SURVIVORSHIP-CLEAN US equity daily panel from OWNED Sharadar SEP
   (delisted incl, split+div adjusted). **PREFER over yf_panel for US stocks** (yfinance has survivorship bias).
 - us_universe(sector=, category='Domestic Common Stock', marketcap=, include_delisted=True, top_n=) -> US ticker
@@ -64,13 +76,7 @@ Be economical and correct. OWNED/FREE data only (see DATA_CATALOG.md). The harne
 '''
 
 
-def _pi(prompt: str) -> str:
-    try:
-        r = subprocess.run(pi_cmd(), input=prompt, capture_output=True, text=True, timeout=420)
-        return _assistant_text(r.stdout)
-    except subprocess.TimeoutExpired as e:
-        out = e.stdout.decode() if isinstance(e.stdout, (bytes, bytearray)) else (e.stdout or "")
-        return _assistant_text(out)
+_pi = _llm_call  # plumbing consolidated in agent.llm
 
 
 def _extract_code(text: str) -> str:
@@ -119,10 +125,7 @@ def consistency_check(proposal: dict, code: str) -> tuple:
               f"the actual computation matches the claimed mechanism/direction; point-in-time data (datekey, no "
               f"look-ahead); correct adjustments (splits, dividends, costs); the right universe; the signal sign. "
               f'Return ONLY JSON: {{"consistent": true|false, "issues": "specific claim-vs-code mismatches, or empty"}}')
-    text = _pi(prompt)
-    try:
-        s, e = text.find("{"), text.rfind("}")
-        d = json.loads(text[s:e + 1])
-        return bool(d.get("consistent", True)), str(d.get("issues", ""))[:500]
-    except Exception:
-        return True, ""
+    d = extract_json(_pi(prompt))
+    if d is None:
+        return True, ""  # fail-OPEN: best-effort guard, not a hard gate
+    return bool(d.get("consistent", True)), str(d.get("issues", ""))[:500]

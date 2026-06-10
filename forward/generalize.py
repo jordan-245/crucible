@@ -8,8 +8,9 @@ Usage: adapt `UNIVERSES` to the candidate, run, read the breadth verdict. ALWAYS
 real mechanism shows broad (even if weak) OOS positivity; an overfit one shows ONE lucky universe + negatives.
 """
 import sys
-sys.path.insert(0, "/root/crucible")
-sys.path.insert(0, "/root/crucible/forward")
+from pathlib import Path as _P
+sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+sys.path.insert(0, str(_P(__file__).resolve().parent))
 import numpy as np
 import pandas as pd
 from sdk.adapters import yf_panel
@@ -17,9 +18,7 @@ from sdk.adapters import yf_panel
 HOLDOUT = "2022-01-01"
 
 
-def sharpe(r, ann=252):
-    r = pd.Series(r).dropna()
-    return round(float(r.mean() / r.std() * np.sqrt(ann)), 2) if len(r) > 20 and r.std() > 0 else None
+from sdk.stats import sharpe_or_none as sharpe  # canonical (was a divergent local copy)
 
 
 def split(ret):

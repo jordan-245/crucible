@@ -2,7 +2,10 @@
 Tests the SAME defensive premise in UNTOUCHED universes; reports ALL results (no cherry-picking).
 Universes declared upfront: (A) US large-cap stocks [Sharadar]; (B) 11 sector ETFs [yfinance];
 (C) ~28 cross-asset/international ETFs [yfinance]. Validated reference: mid-cap (holdout 0.80)."""
-import sys; sys.path.insert(0,'/root/crucible'); sys.path.insert(0,'/root/crucible/forward')
+import sys
+from pathlib import Path as _P
+sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+sys.path.insert(0, str(_P(__file__).resolve().parent))
 import numpy as np, pandas as pd
 from sdk.adapters import yf_panel
 H = '2022-01-01'

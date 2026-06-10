@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT / "forward"))
 FREEZE = "2026-06-09"
 VERDICT_DATE = "2026-12-09"
 LEDGER = ROOT / "forward" / "bab_ledger.jsonl"
-SEP_CACHE = Path("/root/atlas/data/cache/sep_long.parquet")
+from crucible_paths import DATA as _DATA
+SEP_CACHE = _DATA / "cache" / "sep_long.parquet"
 
 
 def _refresh_sep_if_stale(max_age_days=14):
@@ -26,7 +27,7 @@ def _refresh_sep_if_stale(max_age_days=14):
         if SEP_CACHE.exists() and (datetime.now().timestamp() - SEP_CACHE.stat().st_mtime) < max_age_days * 86400:
             return
         subprocess.run([sys.executable, "scripts/sharadar_download.py", "SEP"],
-                       cwd="/root/atlas", timeout=2400, check=True)
+                       cwd=str(_DATA.parent), timeout=2400, check=True)
         SEP_CACHE.unlink(missing_ok=True)  # force the adapter to rebuild from the fresh zip
         from sdk.adapters import _sep_cache
         _sep_cache()
