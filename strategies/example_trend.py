@@ -13,7 +13,7 @@ def signal(panel, **params):
 SPEC = StrategySpec(
     id="sdk-demo-trend",
     family="sdk_demo_tsmom",
-    title="SDK demo — diversified TSMOM via the Hephaestus harness",
+    title="SDK demo — diversified TSMOM via the Crucible harness",
     markets=["futures"],
     data_desc="FREE (yfinance 21 continuous futures 2005-2026)",
     pre_registration="Standard 1/3/12m TSMOM sign blend, inverse-vol, weekly, 8bps. FROZEN. "

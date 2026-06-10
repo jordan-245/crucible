@@ -43,7 +43,7 @@ class StrategySpec:
     scope: str = "broad"                       # "broad" (universal mechanism -> MUST generalize) | "local" (defensible universe-specific -> forward-validate)
     generalization_universes: list = field(default_factory=list)  # broad scope: untouched universes to confirm the mechanism in
     load_gen_data: Callable = None             # broad scope: label -> panel for each generalization universe (UNTOUCHED; same shape as load_data())
-    project: str = "hephaestus"
+    project: str = "crucible"
 
 
 def _sharpe(r, ann=252):

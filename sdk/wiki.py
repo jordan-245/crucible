@@ -35,7 +35,7 @@ date: {date.today()}
 family: {spec.family}
 markets: {spec.markets}
 data: {spec.data_desc}
-generated_by: hephaestus-agent
+generated_by: crucible-agent
 ---
 # {spec.title}
 
