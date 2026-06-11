@@ -1,0 +1,9 @@
+[Unit]
+OnFailure=loop-alert@%n.service
+Description=Nightly runtime-error triage — diagnoses forge crashes, drafts SDK fixes as branches (never merges)
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+WorkingDirectory=/root/crucible
+ExecStart=/usr/bin/python3 -m agent.triage

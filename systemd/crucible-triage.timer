@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly triage of forge runtime errors (after forge, before morning report)
+
+[Timer]
+OnCalendar=*-*-* 06:15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
