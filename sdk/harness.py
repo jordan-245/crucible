@@ -39,6 +39,12 @@ class StrategySpec:
     grid: dict = field(default_factory=dict)  # label -> params override (DSR effective-N; honest search burden)
     holdout_start: str = "2022-01-01"         # write-once quarantine
     deploy_max_positions: int = 10
+    # PRE-REGISTERED hedge sleeve (2026-06-12): broad-index-ETF tickers + position-day share cap.
+    # Declared here = part of the FROZEN design (hashed into the write-once config). The
+    # deployment gate then judges the ALPHA book alone (stricter) and gates the sleeve on
+    # whitelist + cap — see research_integrity.deployment.HEDGE_ETF_WHITELIST.
+    hedge_tickers: list = None                # e.g. ["IWM"]; None = no sleeve (legacy behavior)
+    hedge_cap: float = None                   # e.g. 0.35; required iff hedge_tickers given
     # PROMOTION POLICY (2026-06-09): a stage-1 gate pass is only a CANDIDATE. Confirmation needs
     # either cross-market generalization (broad mechanism) or forward-validation (defensibly local).
     scope: str = "broad"                       # "broad" (universal mechanism -> MUST generalize) | "local" (defensible universe-specific -> forward-validate)
@@ -388,7 +394,10 @@ def run_experiment(spec: StrategySpec, write_wiki=True, alert=True) -> dict:
     # WRITE-ONCE HOLDOUT ENFORCEMENT (invariant #4): one OOS look per frozen config, EVER.
     # The ledger is the refusal mechanism, not just a record -- a second look at the same
     # quarantined slice converts "out-of-sample" into "in-sample with extra steps".
-    cfg_hash = ri.config_hash(spec.id, spec.default_params, str(spec.markets))
+    cfg = dict(spec.default_params)
+    if spec.hedge_tickers:   # the hedge sleeve is part of the frozen design -> part of the hash
+        cfg["__hedge"] = {"tickers": sorted(spec.hedge_tickers), "cap": spec.hedge_cap}
+    cfg_hash = ri.config_hash(spec.id, cfg, str(spec.markets))
     prior = ri.ledger_lookup(cfg_hash)
     holdout_burned = prior is not None
     if holdout_burned:
@@ -436,7 +445,8 @@ def run_experiment(spec: StrategySpec, write_wiki=True, alert=True) -> dict:
     diag = (result.get("diagnostics") or {}) if isinstance(result, dict) else {}
     # deployment sanity on search-window trades too: a strategy that only reaches >=50 trades /
     # sector spread by counting holdout-period activity hasn't demonstrated it in-sample.
-    dep = ri.deployment_sanity(search_trades, strategy_meta={"max_positions": spec.deploy_max_positions})
+    dep = ri.deployment_sanity(search_trades, strategy_meta={"max_positions": spec.deploy_max_positions},
+                               hedge_tickers=spec.hedge_tickers, hedge_cap=spec.hedge_cap)
 
     h_sh = _sharpe(holdout)  # s_sh computed above (survived the tier-0 screen)
     deg = (h_sh - s_sh) / abs(s_sh) * 100 if abs(s_sh) > 0.1 else None
@@ -529,6 +539,7 @@ def run_experiment(spec: StrategySpec, write_wiki=True, alert=True) -> dict:
         "dsr": b.get("dsr"), "median_cpcv": b.get("median_cpcv_sharpe"), "pbo": b.get("pbo"),
         "deployment_passed": dep["passed"], "deploy_peak": dep.get("peak_concurrent"),
         "deploy_sectors": dep.get("sector_spread"), "deploy_reasons": dep.get("forced_fail_reasons"),
+        "hedge_share": dep.get("hedge_share"), "hedge_tickers": dep.get("hedge_tickers"),
         "search_sharpe": round(s_sh, 3), "holdout_sharpe": round(h_sh, 3),
         "holdout_pass": h_pass, "holdout_reasons": h_reasons,
         "full_sharpe": round(_sharpe(full_ret), 3), "full_maxdd": round(_maxdd(full_ret), 3),

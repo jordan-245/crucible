@@ -27,6 +27,32 @@ MAX_SINGLE_NAME_SHARE = 0.40    # max fraction of dollar-position-days in one ti
 MIN_REALIZED_VS_DESIGN = 0.50   # peak_concurrent / expected_positions
 DEFAULT_N_SECTORS = 11          # GICS-style sector count for the design-intent calc
 
+# ── Hedge-sleeve exemption (2026-06-12) ─────────────────────────────────────────
+# Origin: two genuine Amihud near-misses (holdout Sharpe 1.44/1.31) were force-failed on
+# single_name_share because their PRE-REGISTERED index-ETF residual-beta hedge dominated
+# position-days. The gate could not tell a declared hedge instrument from an accidental
+# concentration bet. Design (anti-loophole, each invariant tested in crucible
+# tests/test_hedge_sleeve.py):
+#   1. hedge tickers must be on THIS frozen broad-index-ETF whitelist — a single stock can
+#      never be declared a "hedge" to dodge concentration.
+#   2. the ALPHA book is judged ALONE: hedge trades are excluded from ALL deployment metrics
+#      (trade count, concurrency, single-name/sector share), so a thin alpha book cannot
+#      hide behind hedge bulk — exclusion makes every other check STRICTER, not looser.
+#   3. hedge share of total position-days must stay <= the declared cap (and the hard
+#      ceiling below) — an oversized "hedge" is index-substitution in disguise; the
+#      beta-confound gate (harness stage-1) independently catches the return-side version.
+#   4. no declaration -> byte-identical legacy behavior (frozen designs unaffected).
+HEDGE_ETF_WHITELIST = frozenset({
+    "SPY", "IVV", "VOO",          # S&P 500
+    "IWM", "MDY", "IJH", "IJR",   # small/mid-cap
+    "QQQ",                        # Nasdaq-100
+    "VTI", "ITOT",                # total US market
+    "EFA", "EEM", "ACWI",         # international
+    "TLT", "IEF", "SHY",          # treasuries
+    "GLD", "USO", "DBC",          # commodities
+})
+MAX_HEDGE_SHARE_CEILING = 0.60  # hard ceiling: no declared cap may exceed this
+
 
 def _sector_of(t: Dict[str, Any]) -> str:
     s = t.get("sector")
@@ -53,16 +79,66 @@ def expected_positions(primary_config: Optional[dict], strategy_meta: Optional[d
 
 def deployment_sanity(trades: List[Dict[str, Any]],
                       primary_config: Optional[dict] = None,
-                      strategy_meta: Optional[dict] = None) -> Dict[str, Any]:
+                      strategy_meta: Optional[dict] = None,
+                      hedge_tickers: Optional[List[str]] = None,
+                      hedge_cap: Optional[float] = None) -> Dict[str, Any]:
     """Compute deployment metrics + auto-FAIL gates from a closed-trade list.
+
+    hedge_tickers/hedge_cap: optional PRE-REGISTERED hedge sleeve (see module note above
+    HEDGE_ETF_WHITELIST). Hedge trades are excluded from the alpha-book metrics; the sleeve
+    itself is gated on whitelist membership and position-day share <= hedge_cap (cap itself
+    capped by MAX_HEDGE_SHARE_CEILING). Declaring one without the other is a forced fail.
 
     Returns a dict with metrics, `passed` (bool), and `forced_fail_reasons` (list[str]).
     A False `passed` should force the battery TIER to FAIL regardless of DSR.
     """
     primary_config = primary_config or {}
     strategy_meta = strategy_meta or {}
+
+    hedge_reasons: List[str] = []
+    hedge_share = None
+    if hedge_tickers or hedge_cap is not None:
+        if not hedge_tickers or hedge_cap is None:
+            hedge_reasons.append("hedge declaration incomplete: need BOTH hedge_tickers and hedge_cap")
+            hedge_tickers = None
+        else:
+            bad = sorted(set(hedge_tickers) - HEDGE_ETF_WHITELIST)
+            if bad:
+                hedge_reasons.append(
+                    f"hedge tickers {bad} not on the broad-index-ETF whitelist — "
+                    f"single names can never be declared hedges")
+                hedge_tickers = None
+            elif hedge_cap > MAX_HEDGE_SHARE_CEILING:
+                hedge_reasons.append(
+                    f"hedge_cap {hedge_cap:.2f} > hard ceiling {MAX_HEDGE_SHARE_CEILING} — "
+                    f"a 'hedge' that big is index-substitution in disguise")
+                hedge_tickers = None
+
+    def _w(t):
+        e, x = t.get("entry_date"), t.get("exit_date")
+        if e is None or x is None:
+            return 0.0
+        hd = t.get("hold_days")
+        hd = float(hd) if hd is not None else float(max(0, (pd.Timestamp(x) - pd.Timestamp(e)).days))
+        return (hd + 1e-9) * (float(t.get("position_value") or 0.0) or 1.0)
+
+    if hedge_tickers:
+        hset = set(hedge_tickers)
+        hedge_trades = [t for t in trades if t.get("ticker") in hset]
+        alpha_trades = [t for t in trades if t.get("ticker") not in hset]
+        total_w = sum(_w(t) for t in trades)
+        hedge_share = (sum(_w(t) for t in hedge_trades) / total_w) if total_w > 0 else 0.0
+        if hedge_share > hedge_cap:
+            hedge_reasons.append(
+                f"hedge_share {hedge_share:.2f} > declared cap {hedge_cap:.2f} — "
+                f"the sleeve is carrying the book, not trimming it")
+        trades = alpha_trades  # the ALPHA book is judged alone (stricter, not looser)
+
     n = len(trades)
-    out: Dict[str, Any] = {"n_trades": n, "passed": True, "forced_fail_reasons": []}
+    out: Dict[str, Any] = {"n_trades": n, "passed": True, "forced_fail_reasons": list(hedge_reasons)}
+    if hedge_share is not None:
+        out["hedge_share"] = round(hedge_share, 3)
+        out["hedge_tickers"] = sorted(hedge_tickers) if hedge_tickers else []
     if n == 0:
         out["passed"] = False
         out["forced_fail_reasons"].append("no trades")
@@ -150,4 +226,5 @@ def deployment_sanity(trades: List[Dict[str, Any]],
 
 __all__ = ["deployment_sanity", "expected_positions", 
            "MIN_TRADES", "MIN_PEAK_FRAC_OF_DESIGN", "MIN_PEAK_ABS",
-           "MAX_SINGLE_NAME_SHARE", "MIN_REALIZED_VS_DESIGN"]
+           "MAX_SINGLE_NAME_SHARE", "MIN_REALIZED_VS_DESIGN",
+           "HEDGE_ETF_WHITELIST", "MAX_HEDGE_SHARE_CEILING"]

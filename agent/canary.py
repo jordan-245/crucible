@@ -58,7 +58,7 @@ def _top10(score: pd.DataFrame, freq: str = "ME", n: int = 10) -> pd.DataFrame:
     return w_p.reindex(score.index, method="ffill").fillna(0.0)
 
 
-def _spec(sid, family, panel, weights_fn, grid=None):
+def _spec(sid, family, panel, weights_fn, grid=None, hedge_tickers=None, hedge_cap=None):
     """Build a StrategySpec around a frozen weight-matrix function (panel -> W, same-day;
     harness contract: lag inside signal via net_of_cost(W.shift(1)))."""
     from sdk.harness import StrategySpec
@@ -80,6 +80,7 @@ def _spec(sid, family, panel, weights_fn, grid=None):
         pre_registration="KNOWN-BAD canary — must NOT pass the rails; see agent/canary.py",
         load_data=lambda: panel, signal=signal, grid=grid or {"default": {}},
         holdout_start=HOLDOUT, deploy_max_positions=10, scope="local",
+        hedge_tickers=hedge_tickers, hedge_cap=hedge_cap,
     )
 
 
@@ -204,6 +205,32 @@ def canary_holdout_double_dip():
     return _judge("write-once holdout", v2, fired)
 
 
+def canary_hedge_loophole():
+    """Abuses the hedge-sleeve exemption (added 2026-06-12): a 3-name micro-book hiding
+    behind a legally-declared, whitelisted, under-cap hedge -> designated gate: the
+    deployment-sanity floors must bite on the EX-HEDGE alpha book (peak concurrency /
+    realized-vs-design). The exemption must make the gate STRICTER, never looser."""
+    rng = np.random.default_rng(SEED + 5)
+    drifts = np.zeros(N_NAMES)
+    drifts[:3] = 0.25                              # 3 strong names: clears the tier-0 screen
+    panel = _panel(rng, drifts_idio=drifts)
+
+    def w(p, **k):
+        W = pd.DataFrame(0.0, index=p.index, columns=p.columns)
+        W.iloc[:, :3] = 0.15                       # the whole "alpha book" is 3 names
+        W.iloc[:, 99] = -0.25                      # continuous short, declared as the hedge
+        return W
+
+    # C099 stands in for IWM: rename the column so the whitelist applies
+    panel = panel.rename(columns={"C099": "IWM"})
+    v = _run(_spec("canary-hedge-loophole", "canary_hedge", panel, w,
+                   hedge_tickers=["IWM"], hedge_cap=0.60))
+    reasons = " ".join(v.get("deploy_reasons") or [])
+    fired = v.get("deployment_passed") is False and (
+        "peak_concurrent" in reasons or "realized_vs_design" in reasons or "n_trades" in reasons)
+    return _judge("deployment ex-hedge floors", v, fired)
+
+
 # ---------------------------------------------------------------- harness glue
 
 _ISOLATED = False  # set by _ensure_isolation(); canaries must NEVER touch production state
@@ -239,7 +266,7 @@ def _judge(gate: str, v: dict, fired: bool, note: str = "") -> dict:
 
 
 BATTERY = [canary_screen, canary_lookahead, canary_beta_clone,
-           canary_overfit, canary_holdout_double_dip]
+           canary_overfit, canary_holdout_double_dip, canary_hedge_loophole]
 
 
 def main() -> int:

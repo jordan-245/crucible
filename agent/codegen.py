@@ -77,6 +77,12 @@ A typical module body is therefore: build universe -> load panels -> compute YOU
   diluting the standalone Sharpe — size it to MINIMISE drag, NOT a reflexive 50/50. A ~0-Sharpe hedge
   blended 50/50 HALVES the edge (it sank a real +0.27-Sharpe credit-carry premium to ~0). Prefer the
   standalone leg or a SMALL tail-overlay; do not pair with trend just because the wiki pattern says so.
+- HEDGE SLEEVE (broad-index-ETF beta trim, e.g. a residual IWM short): declare it on the spec —
+  StrategySpec(hedge_tickers=["IWM"], hedge_cap=0.35) — so the deployment gate judges your ALPHA
+  book alone and gates the sleeve on whitelist+cap. An UNDECLARED ETF hedge held continuously will
+  force-fail single_name_share (it killed two otherwise-clean Amihud near-misses on 2026-06-11).
+  Whitelist: SPY/IVV/VOO/IWM/MDY/IJH/IJR/QQQ/VTI/ITOT/EFA/EEM/ACWI/TLT/IEF/SHY/GLD/USO/DBC.
+  The cap is position-day share; >0.60 is never allowed. The sleeve is part of the FROZEN design.
 Be economical and correct. OWNED/FREE data only (see DATA_CATALOG.md). The harness runs ALL the rails; you only produce returns+trades.
 '''
 
