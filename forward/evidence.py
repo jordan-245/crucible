@@ -17,8 +17,11 @@ Gate criteria (pre-registered, frozen here — do not tune to make the book pass
   G5  reconciliation  book.json positions == broker positions (within 0.5%)
                    — checked daily by the shadow loop; here we assert no
                    'blocked' run rows (a mismatch halts and records blocked).
-  DATA-GAPPED (tracked, not yet scoreable — needs fill-vs-decision prices):
-  G6  slippage     <= 2x modeled   |  G7 broker-error rate < 1%
+  G6  slippage     median fill-vs-decision slippage <= 2x modeled cost (8bps for
+                   val_mom => bar 16bps). Day-1 book-build excluded (one-off
+                   position establishment at open after overnight gap — not the
+                   steady-state rebalance cost the gate regulates; recorded anyway).
+  G7  broker-error rate of ok=False order placements < 1%
 
 State: wiki forward/<book>.md (trajectory table appended weekly).
 Usage: python3 forward/evidence.py [--book val_mom_trend_smallcap]
@@ -66,10 +69,16 @@ def _iwm_regimes(dates: list[str]) -> dict[str, str]:
     return out
 
 
+MODELED_COST_BPS = {"val_mom_trend_smallcap": 8.0}  # from each frozen design's cost spec
+SLIPPAGE_MULT = 2.0
+MAX_BROKER_ERR = 0.01
+
+
 def evaluate(book: str) -> dict:
     d = LIVE / book
     returns = _jsonl(d / "returns.jsonl")
     runs = _jsonl(d / "runs.jsonl")
+    fills = _jsonl(d / "fills.jsonl")
 
     n_days = len(returns)
     n_fills = sum(len(r.get("orders") or []) for r in runs if not r.get("dry_run"))
@@ -97,16 +106,45 @@ def evaluate(book: str) -> dict:
                        "pass": bool(regimes_covered and regimes_covered >= 2)},
         "G5_reconciliation": {"value": len(blocked), "need": "0 blocked runs",
                               "pass": not blocked},
-        "G6_slippage": {"value": None, "need": "<= 2x modeled", "pass": None,
-                        "note": "DATA-GAPPED: needs fill-vs-decision prices"},
-        "G7_broker_errors": {"value": None, "need": "< 1%", "pass": None,
-                             "note": "DATA-GAPPED: needs broker error log"},
+        "G6_slippage": _g6(book, returns, fills),
+        "G7_broker_errors": _g7(runs),
     }
     scoreable = [g for g in gates.values() if g["pass"] is not None]
-    verdict = "PASS" if all(g["pass"] for g in scoreable) and len(scoreable) >= 5 else "ACCUMULATING"
+    # PASS requires ALL SEVEN gates scoreable and green — a gate without data is not a pass
+    verdict = "PASS" if len(scoreable) == len(gates) and all(g["pass"] for g in scoreable) \
+        else "ACCUMULATING"
     return {"book": book, "asof": datetime.now().strftime("%Y-%m-%d"),
             "verdict": verdict, "gates": gates,
             "equity": (returns[-1].get("equity") if returns else None)}
+
+
+def _g6(book: str, returns: list, fills: list) -> dict:
+    import statistics
+    # exclude the day-1 book build: one-off establishment cost, not steady-state rebalance.
+    # Build day = the EARLIEST fill date (returns.jsonl starts a day later — first return
+    # needs a prior close — so keying on returns[0] would exclude the wrong day).
+    build_day = min((f["date"] for f in fills if f.get("date")), default=None)
+    sl = [f["slippage_bps"] for f in fills
+          if f.get("slippage_bps") is not None and f.get("date") != build_day]
+    modeled = MODELED_COST_BPS.get(book)
+    if not sl or modeled is None:
+        return {"value": None, "need": f"median <= {SLIPPAGE_MULT}x modeled", "pass": None,
+                "note": f"{len(sl)} steady-state fills — accumulating"}
+    med = statistics.median(sl)
+    bar = SLIPPAGE_MULT * modeled
+    return {"value": round(med, 1), "need": f"<= {bar:.0f}bps (2x {modeled:.0f}bps modeled)",
+            "pass": med <= bar, "n_fills": len(sl)}
+
+
+def _g7(runs: list) -> dict:
+    placed = [o for r in runs if not r.get("dry_run") and not r.get("blocked")
+              for o in r.get("orders", []) if o.get("ok") is not None]
+    if not placed:
+        return {"value": None, "need": f"< {MAX_BROKER_ERR:.0%}", "pass": None,
+                "note": "no ok-flagged orders yet (field added 2026-06-11)"}
+    err = sum(1 for o in placed if not o["ok"]) / len(placed)
+    return {"value": round(err, 4), "need": f"< {MAX_BROKER_ERR:.0%}", "pass": err < MAX_BROKER_ERR,
+            "n_orders": len(placed)}
 
 
 def write_wiki(ev: dict) -> Path:
@@ -119,8 +157,8 @@ def write_wiki(ev: dict) -> Path:
             "+ve net expectancy, >=2 regimes (IWM trailing-21d sign, pre-registered "
             "2026-06-11), clean reconciliation; slippage/broker-error gates pending fill "
             "data. Real capital additionally needs the AUM floor + human approval.\n\n"
-            "| asof | verdict | fills | days | expectancy | regimes | recon | equity |\n"
-            "|---|---|---|---|---|---|---|---|\n")
+            "| asof | verdict | fills | days | expectancy | regimes | recon | slip | err | equity |\n"
+            "|---|---|---|---|---|---|---|---|---|---|\n")
     g = ev["gates"]
 
     def _m(key):
@@ -133,6 +171,7 @@ def write_wiki(ev: dict) -> Path:
            f"{f'{exp * 1e4:+.1f}bps' if exp is not None else '?'} "
            f"{'✅' if g['G3_expectancy']['pass'] else '✗'} | "
            f"{_m('G4_regimes')} | {_m('G5_reconciliation')} | "
+           f"{_m('G6_slippage')} | {_m('G7_broker_errors')} | "
            f"${ev['equity']:,.0f} |\n" if ev.get("equity") else "n/a |\n")
     with page.open("a") as f:
         f.write(row)
