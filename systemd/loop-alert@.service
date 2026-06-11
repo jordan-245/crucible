@@ -1,0 +1,6 @@
+[Unit]
+Description=Telegram alert when loop %i fails (Ralph-Wiggum guard: no silent loop deaths)
+[Service]
+Type=oneshot
+Environment=HOME=/root
+ExecStart=/root/crucible/ops/loop_alert.sh %i

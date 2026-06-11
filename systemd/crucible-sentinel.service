@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=loop-alert@%n.service
 Description=Crucible data-integrity sentinel (9 read-only checks; Telegram only on failure)
 [Service]
 Type=oneshot

@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=loop-alert@%n.service
 Description=Crucible forge — N=3 smiths (multi-agent autonomous research) + digest
 After=network-online.target
 

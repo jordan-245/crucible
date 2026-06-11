@@ -16,6 +16,10 @@ Checks:
   S7  Queue health              research queue not empty-and-stale (forge starvation)
   S8  Run-log heartbeat         forge produced rows on the last scheduled night
   S9  Holdout ledger integrity  jsonl parses, no duplicate config_hash entries
+  S10 Loop registry sync        every live crucible/atlas timer has a row in wiki loops.md
+                                (comprehension-debt rule: unregistered loop = stray)
+  S11 Forward-paper log scan    yesterday's cycle log carries no 'FAILED' step markers
+                                (the steps are '|| echo FAILED' guarded — exit 0 lies)
 
 Usage: python3 -m agent.sentinel
 """
@@ -154,8 +158,47 @@ def check_holdout_ledger(fail):
         fail(f"S9 holdout ledger: DUPLICATE config_hash entries {dupes[:3]} — a second OOS look was recorded; investigate")
 
 
+def check_loop_registry(fail):
+    """S10: every live crucible/atlas timer must be registered in wiki loops.md."""
+    reg = WIKI / "loops.md"
+    if not reg.exists():
+        fail("S10 loop registry: research-wiki/loops.md missing")
+        return
+    txt = reg.read_text()
+    try:
+        r = subprocess.run(["systemctl", "list-timers", "--all", "--no-legend", "--plain"],
+                           capture_output=True, text=True, timeout=10)
+        timers = [l.split()[-2] for l in r.stdout.splitlines()
+                  if l.strip() and ("crucible-" in l or "atlas-" in l)]
+    except Exception as e:
+        fail(f"S10 loop registry: systemctl unavailable ({e})")
+        return
+    strays = [t for t in timers if t.removesuffix(".timer") not in txt]
+    if strays:
+        fail(f"S10 loop registry: live timers NOT in loops.md: {strays} — "
+             f"register or disable (unregistered loop = stray)")
+
+
+def check_forward_paper_log(fail):
+    """S11: ops/forward-paper.sh guards each step with '|| echo ... FAILED' so the unit
+    exits 0 even when a step dies — scan the last cycle's log block for the markers."""
+    log = Path("/root/atlas/data/live/forward_paper.log")
+    if not log.exists():
+        return  # S4 already covers total absence via returns.jsonl
+    lines = log.read_text().splitlines()
+    starts = [i for i, l in enumerate(lines) if l.startswith("=== forward-paper cycle")]
+    if not starts:
+        return
+    last_block = lines[starts[-1]:]
+    failed = [l for l in last_block if "FAILED" in l]
+    if failed:
+        fail(f"S11 forward-paper log: last cycle had failed steps: {failed} "
+             f"(unit exited 0 — this is the only place the failure shows)")
+
+
 CHECKS = [check_sharadar, check_sep_cache, check_forward_paper,
-          check_wiki_pushed, check_queue, check_run_log, check_holdout_ledger]
+          check_wiki_pushed, check_queue, check_run_log, check_holdout_ledger,
+          check_loop_registry, check_forward_paper_log]
 
 
 def main() -> int:

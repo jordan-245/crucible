@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=loop-alert@%n.service
 Description=BAB defensive-premium forward-track (post-discovery OOS evidence before any capital)
 After=network-online.target
 Wants=network-online.target

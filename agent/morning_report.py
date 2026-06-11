@@ -160,6 +160,49 @@ def bab_section() -> list:
             f"cum {last.get('fwd_cum_return', 0)*100:+.1f}% · verdict in {days_left}d"]
 
 
+def loop_health_section() -> list:
+    """Loop-health KPIs (LOOPS_FRAMEWORK_PLAN 1.2): cost-per-accepted-change + retry-rate
+    trends from run_log schema-2 stages. Catches regressions like the Fable-5 'empty
+    codegen' pattern QUANTITATIVELY (retry-rate spike) instead of by eyeball."""
+    rows = [r for r in _jsonl(RUNLOG) if isinstance(r.get("stages"), dict)]
+    if len(rows) < 3:
+        return []
+    lines = ["\U0001f501 <b>Loop health</b> (7-night window vs prior)"]
+    cut_now = (datetime.now() - timedelta(days=7)).isoformat()
+    cut_prev = (datetime.now() - timedelta(days=14)).isoformat()
+    cur = [r for r in rows if r.get("ts", "") > cut_now]
+    prev = [r for r in rows if cut_prev < r.get("ts", "") <= cut_now]
+
+    def _kpis(rs):
+        if not rs:
+            return None
+        n = len(rs)
+        accepted = sum(1 for r in rs if (r.get("verdict") or {}).get("tier") in ("PROMOTE", "SCREEN")
+                       or r.get("passed_all"))
+        retries = sum(max(0, (r["stages"].get("run_attempts") or 1) - 1)
+                      + max(0, (r["stages"].get("codegen_attempts") or 1) - 1) for r in rs)
+        crashes = sum(1 for r in rs if r.get("fail_reason"))
+        wall = sorted(r["stages"].get("total_s") or 0 for r in rs)[len(rs) // 2]
+        return {"n": n, "accepted": accepted, "retry_rate": retries / n,
+                "crash_rate": crashes / n, "med_wall_s": wall}
+
+    k, p = _kpis(cur), _kpis(prev)
+    if not k:
+        return []
+    cpac = f"{k['n']}/{k['accepted']}" if k["accepted"] else f"{k['n']}/0 (∞)"
+    lines.append(f"  cost-per-accepted: {cpac} hypotheses/accept · retry-rate "
+                 f"{k['retry_rate']:.2f}/run · crash {k['crash_rate']:.0%} · med wall {_fmt_s(k['med_wall_s'])}")
+    if p:
+        d_retry = k["retry_rate"] - p["retry_rate"]
+        if abs(d_retry) >= 0.5:
+            arrow = "⚠️ UP" if d_retry > 0 else "↓ down"
+            lines.append(f"  {arrow} retry-rate {p['retry_rate']:.2f} → {k['retry_rate']:.2f} "
+                         f"vs prior week" + (" — codegen/model regression? check fail_reasons" if d_retry > 0 else ""))
+        if p["crash_rate"] == 0 and k["crash_rate"] > 0.2:
+            lines.append(f"  ⚠️ crash-rate jumped 0% → {k['crash_rate']:.0%}")
+    return lines
+
+
 def ops_section() -> list:
     lines = []
     if (ROOT / "LOOP_DISABLED").exists():
@@ -184,7 +227,7 @@ def ops_section() -> list:
 
 def main() -> None:
     sections = (forge_section() + [""] + forward_paper_section() + [""]
-                + bab_section() + ops_section())
+                + bab_section() + loop_health_section() + ops_section())
     msg = "☀️ <b>Morning report</b> — " + datetime.now().strftime("%a %Y-%m-%d") + "\n\n" \
           + "\n".join(s for s in sections if s is not None)
     ok = all(telegram_msg(part) for part in _split_html(msg))

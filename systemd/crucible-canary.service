@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=loop-alert@%n.service
 Description=Crucible gate canary (known-bad battery; alert if any gate has rotted)
 [Service]
 Type=oneshot
