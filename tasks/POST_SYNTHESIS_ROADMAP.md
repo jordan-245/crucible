@@ -67,3 +67,17 @@ where the floor is only $10–15K — which is exactly why the board said BOREAS
 - Not adding gates (stack FROZEN). Not fitting the bandit early. Not building Stage D before AUM.
 - Not touching the two forward books' configs while evidence accumulates (any change resets the
   evidence clock — the worst trade available).
+
+## Banked (2026-06-12): context-architecture findings — reopen trigger = June 22 model revert
+
+From "Building a Good Vertical Agent" (Peter Wang / Shortcut, deployed in 3 of top-4 multistrat
+funds): agent = faithful compression of its task distribution; context as L1/L2/L3 cache. Crucible
+already ~85% aligned (one-module substrate, consequence-reporting verdicts, error-pair memory,
+severity triage). Two banked gaps, NOT building while the synthesized system stabilizes:
+1. **Conditional CONTRACT assembly** — codegen contract is all-L1; include sections keyed off
+   proposal fields (market/data_source/hedge) so e.g. crypto proposals don't pay for SF1/PIT gotchas.
+2. **L3 for the fix loop** — fix() retry prompt should include the actual SDK source implicated by
+   the traceback (triage does this; codegen doesn't).
+TRIGGER: Fable-5 reverts to weaker $0 models 2026-06-22. Weaker smiths need more curated context
+("tiers slide with model strength"). Compare June 16–21 vs June 23–28: consistency severity
+distribution, codegen_attempts/empty retries, arm rewards. Degradation ⇒ pull lever #1, then #2.
