@@ -223,3 +223,68 @@ def sf1(tickers, fields=None, dimension="ARQ") -> pd.DataFrame:
     df = pd.read_parquet(path, columns=cols,
                          filters=[("ticker", "in", list(tickers)), ("dimension", "==", dimension)])
     return df.sort_values(["ticker", "datekey"]).reset_index(drop=True)
+
+
+# ── Databento GLBX — individual futures CONTRACT MONTHS (basis-momentum substrate) ──
+DATABENTO_DIR = str(DATA / "databento")
+_MONTH_CODE = {m: i + 1 for i, m in enumerate("FGHJKMNQUVXZ")}
+
+
+def fut_curve(root, n_contracts=2, min_volume=1) -> pd.DataFrame:
+    """Daily futures CURVE panel from owned Databento GLBX daily bars (one-time pull 2026-06-12,
+    17 commodity roots, all contract months, 2010+). For each business day, ranks the OUTRIGHT
+    contracts that actually traded (volume >= min_volume) by expiry and returns the nearest
+    `n_contracts`: columns close_1..n, volume_1..n, symbol_1..n, days_to_roll_1 (days until the
+    front contract's last trade — for roll-aware execution).
+
+    THE point of this dataset: basis-momentum (Boons-Prado 2019) and curve signals need the first
+    AND second contract separately; stitched continuous series (yf_panel) cannot express them.
+
+    Gotchas handled here so generated code doesn't have to:
+    - spread/butterfly symbols (e.g. 'CLN6-CLQ6', 'CL:BF ...') are EXCLUDED (outrights only);
+    - single-digit year codes wrap each decade AND one symbol can be TWO contracts (CLZ0 rows in
+      2010 = Dec-2010; CLZ0 rows in 2012+ = Dec-2020, listed ~9y out) — disambiguated per
+      Databento instrument_id using each instrument's LAST trade date (≈ expiry month);
+    - returns are NOT roll-adjusted: compute returns WITHIN a contract (groupby symbol) or use
+      rank-1/rank-2 series with roll-day awareness — never diff close_1 across a roll naively."""
+    import re
+    cache = os.path.join(_CACHE_DIR, f"futcurve_{root}_{n_contracts}_{min_volume}.parquet")
+    src = os.path.join(DATABENTO_DIR, f"{root}_ohlcv1d.parquet")
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"{src} — root '{root}' not in the owned Databento pull "
+                                f"(see wiki DATA_CATALOG; re-quote with metadata.get_cost before adding).")
+    if not _stale(cache, src):
+        return pd.read_parquet(cache)
+    df = pd.read_parquet(src, columns=["symbol", "close", "volume", "instrument_id"])
+    df["date"] = df.index.tz_localize(None).normalize()
+    df = df.reset_index(drop=True)  # ts_event index has duplicate labels (one row per contract per day)
+    pat = re.compile(rf"^{re.escape(root)}([FGHJKMNQUVXZ])(\d{{1,2}})$")
+    m = df["symbol"].str.extract(pat)
+    df = df[m[0].notna() & (df["volume"] >= min_volume)].copy()
+    df["_mon"] = df["symbol"].str.extract(pat)[0].map(_MONTH_CODE)
+    df["_yd"] = df["symbol"].str.extract(pat)[1].astype(int)
+    # expiry per INSTRUMENT (not symbol — symbols recycle): last trade date ≈ expiry month, so the
+    # expiry year is the year (last_trade_year-1 .. +1) whose last digit(s) match the year code.
+    last_trade = df.groupby("instrument_id")["date"].transform("max")
+    lty = last_trade.dt.year
+    yd = df["_yd"]
+    exp_year = np.where(yd >= 10, 2000 + yd,
+                        lty + ((yd - lty % 10 + 5) % 10) - 5)  # nearest year (±5) with matching digit
+    df["_exp"] = exp_year * 100 + df["_mon"]
+    df["_dtr"] = (last_trade - df["date"]).dt.days
+    df = df.sort_values(["date", "_exp", "_dtr"])
+    df = df.drop_duplicates(["date", "_exp"])  # rare dual-listing duplicates: keep nearer-expiry instrument
+    df["_rank"] = df.groupby("date").cumcount() + 1
+    df = df[df["_rank"] <= n_contracts]
+    out = df.pivot(index="date", columns="_rank", values=["close", "volume", "symbol"])
+    out.columns = [f"{f}_{r}" for f, r in out.columns]
+    dtr = df[df["_rank"] == 1].set_index("date")["_dtr"]
+    out["days_to_roll_1"] = dtr
+    out = out.sort_index()
+    try:
+        tmp = cache + ".tmp"
+        out.to_parquet(tmp)
+        os.replace(tmp, cache)
+    except OSError:
+        pass
+    return out
