@@ -22,6 +22,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -122,7 +123,29 @@ def evaluate_lifecycle(book: str, gates_all_pass: bool, n_days: int) -> dict:
     changed = new != cur
     if changed:
         reg.update(book, lifecycle=new)
+    _write_verdict(book, new, decay, gates_all_pass, n_days, watch)
     return {"lifecycle": new, "decay": decay, "changed": changed, "watch": watch}
+
+
+def _write_verdict(book: str, lifecycle: str, decay: Optional[dict], gates_all_pass: bool,
+                   n_days: int, watch: Optional[str]) -> None:
+    """#34 one-direction contract: data/live/<book>/lifecycle_verdict.json (schema v1).
+    During the soak the direct reg.update above still runs; atlas's intake consumer
+    verifies in shadow mode that applying the artifact would land the same state.
+    After a clean soak the direct mutation dies and the artifact is the only channel."""
+    try:
+        d = LIVE / book
+        d.mkdir(parents=True, exist_ok=True)
+        v = {"schema_version": 1, "book": book,
+             "asof": datetime.now().strftime("%Y-%m-%d"),
+             "lifecycle": lifecycle, "gates_all_pass": gates_all_pass, "n_days": n_days,
+             "decay": {k: decay[k] for k in ("d1", "d2", "cusum_peak", "roll_mean")} if decay else None,
+             "watch": watch}
+        tmp = d / "lifecycle_verdict.json.tmp"
+        tmp.write_text(json.dumps(v, indent=2, default=str), encoding="utf-8")
+        tmp.replace(d / "lifecycle_verdict.json")
+    except OSError as e:
+        print(f"[lifecycle] WARNING: verdict artifact write failed for {book}: {e}")
 
 
 def retire(book: str) -> bool:
@@ -131,6 +154,7 @@ def retire(book: str) -> bool:
     reg = _registry()
     ok = reg.update(book, lifecycle="retired")
     if ok:
+        _write_verdict(book, "retired", None, False, 0, "human-confirmed retirement")
         print(f"[lifecycle] {book} -> RETIRED (human-confirmed). Daily loop will skip it; "
               f"close any open positions manually at the broker.")
     else:

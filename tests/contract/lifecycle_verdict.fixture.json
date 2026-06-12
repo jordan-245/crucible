@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "book": "fixture_strategy",
+  "asof": "2026-06-13",
+  "lifecycle": "evidence",
+  "gates_all_pass": false,
+  "n_days": 21,
+  "decay": {"d1": false, "d2": false, "cusum_peak": 1.2, "roll_mean": 0.0003},
+  "watch": null
+}

@@ -154,6 +154,18 @@ def deploy_to_paper(strategy_path: str, *, name: Optional[str] = None, capital: 
     weights = extract_target_weights(trades)
     exp = compute_expectation(net, getattr(spec, "holdout_start", "2022-01-01"))
     write_target(name, weights, strategy_path)
+    # #34 one-direction contract: the deploy REQUEST artifact. During the soak the subprocess
+    # registration below still runs (behavior unchanged); atlas's intake consumer verifies in
+    # shadow mode that the artifact alone would produce the same registry entry. After a clean
+    # soak the subprocess dies and the artifact becomes the only channel.
+    req = {"schema_version": 1, "name": name, "strategy_path": strategy_path,
+           "capital": capital, "broker": broker, "tif": tif, "expectation": exp,
+           "requested_at": datetime.datetime.now().isoformat(timespec="seconds")}
+    d = ATLAS_LIVE / name
+    with _live_lock():
+        tmp = d / "deploy_request.json.tmp"
+        tmp.write_text(json.dumps(req, indent=2))
+        tmp.replace(d / "deploy_request.json")
     # check=True + captured output + Telegram on failure (2026-06-12 review finding: check=False
     # left an orphaned half-deploy possible — target.json written but no registry entry — silently).
     proc = subprocess.run(
