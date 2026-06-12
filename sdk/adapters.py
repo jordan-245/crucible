@@ -323,6 +323,8 @@ def cot_positioning(roots=None, start_year=2010) -> pd.DataFrame:
     use a row from its index date onward, never from the as-of Tuesday.
     Hedging-pressure signal (Basu-Miffre): comm_net / oi (more short = more hedging pressure)."""
     import io, zipfile
+    if isinstance(roots, str):  # footgun caught live 2026-06-13: smith passed "CL" -> iterated to 'C','L' -> KeyError
+        roots = [roots]
     roots = list(roots or _COT_CODES)
     this_year = pd.Timestamp.today().year
     cache = _day_cache("cot", [*roots, start_year, this_year])
