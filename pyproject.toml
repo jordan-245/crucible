@@ -20,3 +20,6 @@ data = ["yfinance"]  # yf_panel adapter; Sharadar/FRED need no extra packages
 [tool.setuptools]
 packages = ["agent", "sdk", "live"]
 py-modules = ["crucible_paths"]
+
+[tool.pytest.ini_options]
+markers = ["network: requires live network endpoints (deselect with -m 'not network')"]
